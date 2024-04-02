@@ -1,0 +1,12 @@
+../Core/Inc/foodorder.h:10:6:FoodOrder_Init	24	static
+../Core/Src/main.c:72:6:HAL_UART_RxCpltCallback	16	static
+../Core/Src/main.c:78:6:processReceivedData	32	static
+../Core/Src/main.c:104:13:uartSend	16	static
+../Core/Src/main.c:114:5:main	16	static
+../Core/Src/main.c:185:6:SystemClock_Config	96	static
+../Core/Src/main.c:230:13:MX_LPUART1_UART_Init	8	static
+../Core/Src/main.c:278:13:MX_USART3_UART_Init	8	static
+../Core/Src/main.c:326:13:MX_TIM1_Init	40	static
+../Core/Src/main.c:373:13:MX_GPIO_Init	64	static
+../Core/Src/main.c:592:1:__io_putchar	16	static
+../Core/Src/main.c:604:6:Error_Handler	4	static,ignoring_inline_asm
