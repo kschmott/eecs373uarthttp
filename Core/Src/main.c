@@ -68,13 +68,20 @@ void processReceivedData(char* data);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+static void uartSend (char *str);
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+	if(htim->Instance == TIM1){
+		  uartSend("LIST\n");
+		  HAL_UART_Receive_IT(&huart3, (uint8_t*)&rxBuffer[rxIndex], 1);
+	}
+}
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if(huart->Instance == USART3){
 		 ++i;
 	}
 
 }
+
 void processReceivedData(char* data) {
     int totalOrders = atoi(data);
     data += 3;
@@ -141,8 +148,8 @@ int main(void)
   MX_LPUART1_UART_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  uartSend("LIST\n");
-  HAL_UART_Receive_IT(&huart3, (uint8_t*)&rxBuffer[rxIndex], 1);
+
+  HAL_TIM_Base_Start_IT(&htim1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -337,9 +344,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 0;
+  htim1.Init.Prescaler = 799;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 65535;
+  htim1.Init.Period = 39999;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
