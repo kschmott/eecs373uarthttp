@@ -36,6 +36,8 @@
 /* USER CODE BEGIN PD */
 #define RX_BUFFER_SIZE 256
 #define MAX_FOOD_ORDERS 10
+#define SENSOR_ADDR 0x0C << 1 // Shift left for the HAL library
+#define READ_LEN 2 // Start by reading the 16-bit content length
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -44,6 +46,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c2;
+
 UART_HandleTypeDef hlpuart1;
 UART_HandleTypeDef huart3;
 
@@ -62,6 +66,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
 void processReceivedData(char* data);
 /* USER CODE END PFP */
@@ -69,11 +74,44 @@ void processReceivedData(char* data);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 static void uartSend (char *str);
+void readTinyCodeData(void) {
+    uint8_t readBuffer[256]; // Buffer to store the read data
+    uint16_t contentLength = 0;
+
+    // First, read the content length
+    HAL_StatusTypeDef status = HAL_I2C_Master_Receive(&hi2c2, SENSOR_ADDR, readBuffer, READ_LEN, HAL_MAX_DELAY);
+    if(status != HAL_OK) {
+        // Handle communication error
+    } else {
+        // If read is successful, parse the content length
+        contentLength = readBuffer[0] | (readBuffer[1] << 8);
+        if(contentLength == 0){
+        	return;
+        }
+        printf("content length %d\n", contentLength);
+        if(contentLength > 0 && contentLength <= 254) {
+            // Now, read the actual content based on the content length
+            status = HAL_I2C_Master_Receive(&hi2c2, SENSOR_ADDR, readBuffer, contentLength + 2, HAL_MAX_DELAY);
+            if(status != HAL_OK) {
+                // Handle communication error
+            } else {
+                // Data is now in readBuffer[2] to readBuffer[contentLength+1], process it as needed
+                // Remember to handle non-UTF-8 or other data safely
+            	for(int i =0; i < contentLength; ++i){
+            		printf("%c",readBuffer[2 + i]);
+            	}
+            	printf("\n");
+            }
+        } else {
+            // No content or content length invalid
+        }
+    }
+}
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	if(htim->Instance == TIM1){
-		  uartSend("LIST\n");
-		  HAL_UART_Receive_IT(&huart3, (uint8_t*)&rxBuffer[rxIndex], 1);
-	}
+//	if(htim->Instance == TIM1){
+//		  uartSend("LIST\n");
+//		  HAL_UART_Receive_IT(&huart3, (uint8_t*)&rxBuffer[rxIndex], 1);
+//	}
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if(huart->Instance == USART3){
@@ -147,6 +185,7 @@ int main(void)
   MX_USART3_UART_Init();
   MX_LPUART1_UART_Init();
   MX_TIM1_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_Base_Start_IT(&htim1);
@@ -158,7 +197,7 @@ int main(void)
   while (1)
   {
 
-	  if(i > 0){
+	  while(i > 0){
 //		  printf("%c", rxBuffer[rxIndex]);
 	 	if (rxBuffer[rxIndex] == '\n' || rxIndex >= RX_BUFFER_SIZE - 1 ||rxBuffer[rxIndex] == '\r' ) {
 	 		// Null-terminate the string
@@ -178,6 +217,7 @@ int main(void)
 
 	 		  --i;
 	 	  }
+	  readTinyCodeData();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -227,6 +267,54 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x00000E14;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+
 }
 
 /**
@@ -401,14 +489,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   GPIO_InitStruct.Alternate = GPIO_AF13_SAI1;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PF0 PF1 PF2 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF4_I2C2;
-  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PF7 */
   GPIO_InitStruct.Pin = GPIO_PIN_7;
