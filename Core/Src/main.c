@@ -108,10 +108,10 @@ void readTinyCodeData(void) {
     }
 }
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-//	if(htim->Instance == TIM1){
-//		  uartSend("LIST\n");
-//		  HAL_UART_Receive_IT(&huart3, (uint8_t*)&rxBuffer[rxIndex], 1);
-//	}
+	if(htim->Instance == TIM1){
+		  uartSend("LIST\n");
+		  HAL_UART_Receive_IT(&huart3, (uint8_t*)&rxBuffer[rxIndex], 1);
+	}
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if(huart->Instance == USART3){
@@ -121,6 +121,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 }
 
 void processReceivedData(char* data) {
+	if(strcmp(data, "DATA") != 0){
+		return;
+	}
+  data += 5;
     int totalOrders = atoi(data);
     data += 3;
     int processedOrders = 0;
@@ -158,6 +162,7 @@ static void uartSend (char *str)
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 	for (int i = 0; i < MAX_FOOD_ORDERS; ++i){
 		FoodOrder_Init(&foodOrders[i]);
@@ -217,7 +222,7 @@ int main(void)
 
 	 		  --i;
 	 	  }
-	  readTinyCodeData();
+//	  readTinyCodeData();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
