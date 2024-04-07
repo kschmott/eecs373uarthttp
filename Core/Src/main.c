@@ -35,7 +35,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define RX_BUFFER_SIZE 256
-#define MAX_FOOD_ORDERS 10
+#define MAX_FOOD_ORDERS 5
 #define SENSOR_ADDR 0x0C << 1 // Shift left for the HAL library
 #define READ_LEN 2 // Start by reading the 16-bit content length
 /* USER CODE END PD */
@@ -56,6 +56,7 @@ TIM_HandleTypeDef htim1;
 /* USER CODE BEGIN PV */
 char rxBuffer[RX_BUFFER_SIZE];
 FoodOrder foodOrders[MAX_FOOD_ORDERS];
+FoodOrder prevFoodOrders[MAX_FOOD_ORDERS];
 volatile uint16_t rxIndex = 0;
 uint32_t i = 0;
 /* USER CODE END PV */
@@ -73,7 +74,13 @@ void processReceivedData(char* data);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 static void uartSend (char *str);
+int prevIdCode = -1;
+void openDoor(int id){
+	printf("Open The door signal sent with id %d\r\n", id);
+}
+
 void readTinyCodeData(void) {
     uint8_t readBuffer[256]; // Buffer to store the read data
     uint16_t contentLength = 0;
@@ -88,7 +95,6 @@ void readTinyCodeData(void) {
         if(contentLength == 0){
         	return;
         }
-        printf("content length %d\n", contentLength);
         if(contentLength > 0 && contentLength <= 254) {
             // Now, read the actual content based on the content length
             status = HAL_I2C_Master_Receive(&hi2c2, SENSOR_ADDR, readBuffer, contentLength + 2, HAL_MAX_DELAY);
@@ -97,10 +103,19 @@ void readTinyCodeData(void) {
             } else {
                 // Data is now in readBuffer[2] to readBuffer[contentLength+1], process it as needed
                 // Remember to handle non-UTF-8 or other data safely
-            	for(int i =0; i < contentLength; ++i){
-            		printf("%c",readBuffer[2 + i]);
+            	readBuffer[contentLength + 3] = '\0';
+//            	for(int i =0; i < contentLength; ++i){
+//            		printf("%c",readBuffer[2 + i]);
+//            	}
+
+            	int parsedId = atoi((char *)readBuffer + 2);
+            	if(parsedId == 0){
+                       return;
+                        	}
+            	if (parsedId != prevIdCode){
+            		prevIdCode = parsedId;
+            		openDoor(parsedId);
             	}
-            	printf("\n");
             }
         } else {
             // No content or content length invalid
@@ -119,7 +134,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	}
 
 }
-
+void setBox(int id, int box){
+	 char command[10];
+	 sprintf(command, "PUT%d%d\n", box, id);
+	 uartSend(command);
+}
 void processReceivedData(char* data) {
 	if(strcmp(data, "DATA") != 0){
 		return;
@@ -128,13 +147,15 @@ void processReceivedData(char* data) {
     int totalOrders = atoi(data);
     data += 3;
     int processedOrders = 0;
+    for (int i = 0; i < MAX_FOOD_ORDERS; ++i){
+          		FoodOrder_Init(&foodOrders[i]);
+          	}
     if(totalOrders == 0){
     	return;
     }
-    for (int i = 0; i < MAX_FOOD_ORDERS; ++i){
-    		FoodOrder_Init(&foodOrders[i]);
-    	}
+
     while(processedOrders < totalOrders){
+
     	foodOrders[processedOrders].id = atoi(data);
     	data += 11;
     	strcpy(foodOrders[processedOrders].name, data);
@@ -142,12 +163,16 @@ void processReceivedData(char* data) {
     		++data;
     	}
     	++data;
+    	foodOrders[processedOrders].box = atoi(data);
+    	data += 2;
     	foodOrders[processedOrders].valid = 1;
     	++processedOrders;
     }
     for(int i = 0; i < processedOrders; ++i){
+    	if(!foodOrders[i].valid) continue;
     	printf("Name: %s\n", foodOrders[i].name);
     	printf("id: %d\n", foodOrders[i].id);
+    	printf("box: %d\n", foodOrders[i].box);
     }
 }
 static void uartSend (char *str)
@@ -222,7 +247,7 @@ int main(void)
 
 	 		  --i;
 	 	  }
-//	  readTinyCodeData();
+	  readTinyCodeData();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
