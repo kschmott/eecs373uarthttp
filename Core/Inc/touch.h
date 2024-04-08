@@ -56,16 +56,18 @@ void readPosition(I2C_HandleTypeDef* i2c, uint16_t *x, uint16_t *y, uint8_t *z) 
 
 // from: https://github.com/arduino/ArduinoCore-API/blob/0c853c5cded2768122fae258d42b2b4c06cdb3b1/api/Common.cpp
 uint16_t map(int32_t value, int32_t in_min, int32_t in_max, int32_t out_min, int32_t out_max) {
-	return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+	uint32_t result = (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+	if (result > out_max) return out_max;
+	if (result < out_min) return out_min;
+	return result;
 }
 
 uint8_t within(uint16_t x, uint16_t y, uint16_t x1, uint16_t x2, uint16_t y1, uint16_t y2) {
 	return (x > x1) && (x < x2) && (y > y1) && (y < y2);
 }
 
-const uint16_t yend = 479;
-const uint16_t xend = 319;
-void touchHook(I2C_HandleTypeDef* i2c) {
+// returns the button that was touched
+int8_t touchHook(I2C_HandleTypeDef* i2c) {
 	writeRegister8(i2c, STMPE_INT_STA, 0xFF);
 	uint16_t x, y;
 	uint8_t z;
@@ -75,19 +77,22 @@ void touchHook(I2C_HandleTypeDef* i2c) {
 		readPosition(i2c, &x, &y, &z);
 	}
 
-	x = map(x, 3520, 750, 0, 319);
-	y = map(y, 3700, 750, 0, 479);
-
-	if (within(x, y, 25, 100, 50, yend-50)) {
-		printf("Got a touch: (%d, %d) (within the bottom button)\r\n", x, y);
-	} else if (within(x, y, 125, 200, 50, yend-50)) {
-		printf("Got a touch: (%d, %d) (within the top button)\r\n", x, y);
-	} else {
-		//printf("Touched nothing.\r\n");
+	if (y > 3700 || y < 450) { // was 700
+		printf("Off the end with %d\r\n", y);
+		return -1;
 	}
+	y = map(y, 3700, 450, 0, 479);
+
+	uint16_t button = 4 - y / 96;
+	if (button == 4) return -1;
+
+	printf("Touched button %d %d.\r\n", y, button);
+
+	return button;
 }
 
 void initialize_touch(I2C_HandleTypeDef* i2c) {
+	//HAL_Delay(1000); // When restarted, QR code is spamming, need to let it cool down
 	// TODO: only thing I can think of is that you need to read the version here for some reason
 	// the problem is that I need to do some sort of request response thing, for read
 	// it is a write then request

@@ -279,8 +279,8 @@ void sendCharacter(SPI_HandleTypeDef* spi, uint16_t x, uint16_t y, char c, uint1
     	uint8_t line = font[c * 5 + i];
     	for (int8_t j = 0; j < 8; j++, line >>= 1) {
     		if (line & 1) {
-    			uint16_t x1 = x + 7 * size_x - j * size_x;
-    			uint16_t y1 = y + i * size_y;
+    			uint16_t x1 = x + i * size_x;
+    			uint16_t y1 = y + j * size_y;
     			uint16_t x2 = x1 + size_x - 1;
     			uint16_t y2 = y1 + size_y - 1;
     			sendBlock(spi, x1, x2, y1, y2, color);
@@ -290,11 +290,11 @@ void sendCharacter(SPI_HandleTypeDef* spi, uint16_t x, uint16_t y, char c, uint1
 }
 
 void sendString(SPI_HandleTypeDef* spi, uint16_t x, uint16_t y, char* s, uint16_t color, uint8_t size_x, uint8_t size_y) {
-	uint16_t width = (5 + 1) * size_y; // because character has 5 columns, +1 to add space between characters
+	uint16_t width = (5 + 1) * size_x; // because character has 5 columns, +1 to add space between characters
 	for (uint8_t i = 0; s[i] != 0; i++) {
-		uint16_t offset = y + i * width;
+		uint16_t offset = x + i * width;
 		if (offset + width > 479) return; // off the end of the screen
-		sendCharacter(spi, x, offset, s[i], color, size_x, size_y);
+		sendCharacter(spi, offset, y, s[i], color, size_x, size_y);
 	}
 }
 
@@ -325,20 +325,76 @@ void initialize_screen(SPI_HandleTypeDef* spi) {
 	}
 }
 
+const uint16_t yend = 479;
+const uint16_t xend = 319;
+//void drawButton(SPI_HandleTypeDef* spi, uint8_t button, uint16_t color) {
+//	switch (button) {
+//	case 0: sendBlock(spi, 0, xend, yend-96, yend, color); return;
+//	case 1: sendBlock(spi, 0, xend, yend-(96*2), yend-96-1, color); return;
+//	case 2: sendBlock(spi, 0, xend, yend-(96*3), yend-(96*2)-1, color); return;
+//	case 3: sendBlock(spi, 0, xend, yend-(96*4), yend-(96*3)-1, color); return;
+//	case 4: sendBlock(spi, 0, xend, 0, yend-(96*4)-1, color); return;
+//	}
+//}
+
+// create an array with color on color off
+uint16_t colors[5][2] = {
+		{0x071f, 0x028b},
+		{0xfc20, 0x4100},
+		{0x2dab, 0x0263},
+		{0xf900, 0x5060},
+		{0x0, 0x0}
+};
+
+uint8_t states[5] = {0, 0, 0, 0, 0};
+
+void drawButton(SPI_HandleTypeDef* spi, uint8_t button, uint8_t on) {
+	switch (button) {
+	case 0: sendBlock(spi, 0, xend, yend-96, yend, colors[button][on]); return;
+	case 1: sendBlock(spi, 0, xend, yend-(96*2), yend-96-1, colors[button][on]); return;
+	case 2: sendBlock(spi, 0, xend, yend-(96*3), yend-(96*2)-1, colors[button][on]); return;
+	case 3: sendBlock(spi, 0, xend, yend-(96*4), yend-(96*3)-1, colors[button][on]); return;
+	case 4: sendBlock(spi, 0, xend, 0, yend-(96*4)-1, colors[button][on]); return;
+	}
+}
+
+void drawAll(SPI_HandleTypeDef* spi) {
+//	sendBlock(spi, 0, xend, yend-96, yend, colors[0][0]);
+//	sendBlock(spi, 0, xend, yend-(96*2), yend-96-1, colors[1][0]);
+//	sendBlock(spi, 0, xend, yend-(96*3), yend-(96*2)-1, colors[2][0]);
+//	sendBlock(spi, 0, xend, yend-(96*4), yend-(96*3)-1, colors[3][0]);
+//	sendBlock(spi, 0, xend, 0, yend-(96*4)-1, colors[4][0]);
+//	drawButton(spi, 0, 0);
+//	drawButton(spi, 1, 0);
+//	drawButton(spi, 2, 0);
+//	drawButton(spi, 3, 0);
+//	drawButton(spi, 4, 0);
+	for (uint8_t i = 0; i < 5; i++) {
+		drawButton(spi, i, states[i]);
+	}
+}
+
+void flip(SPI_HandleTypeDef* spi, uint8_t button) {
+	states[button] = !states[button];
+	drawButton(spi, button, states[button]);
+}
+
 void draw(SPI_HandleTypeDef* spi) {
 	printf("Sending pixels.\r\n");
 
-	const uint16_t yend = 479;
-	const uint16_t xend = 319;
+//	for (uint8_t i = 0; i < 5; i++) {
+//		drawButton(spi, i, 0x071f + 5*i);
+//	}
+
+
 
 	// use https://rgbcolorpicker.com/565 to find pixel values
-	sendBlock(spi, 0, xend, 0, yend, 0);
-	sendBlock(spi, 25, 25+75, 50, yend-50, 0x2dab);
-	sendBlock(spi, 25+75+25, 25+75+25+75, 50, yend-50, 0x2dab);
+	//sendBlock(spi, 0, xend, 0, yend, 0);
+	drawAll(spi);
 
-	sendString(spi, xend-70, 20, "Delivering for?", 0xffff, 2, 2);
-	sendString(spi, 25+75+25 + 10, 50 + 10, "B. Obama", 0x0, 2, 2);
-	sendString(spi, 25 + 10, 50 + 10, "Benton E.", 0x0, 5, 5);
+	//sendString(spi, xend-70, 20, "Delivering for?", 0xffff, 2, 2);
+	//sendString(spi, 25+75+25 + 10, 50 + 10, "B. Obama", 0x0, 2, 2);
+	//sendString(spi, 25 + 10, 50 + 10, "Benton E.", 0x0, 5, 5);
 	//sendBlock(spi, 0, 0, 0, 0, 0x17e0);
 	//sendBlock(spi, xend, xend, yend, yend, 0xf880);
 }
