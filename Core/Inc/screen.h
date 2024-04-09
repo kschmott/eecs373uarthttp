@@ -244,8 +244,80 @@ void sendCommand(SPI_HandleTypeDef* spi, uint8_t commandByte, uint8_t *dataBytes
 	HAL_SPI_Transmit(spi, dataBytes, numDataBytes, 100);
 }
 
+void plasterPixel(uint16_t *buffer, uint16_t buttonWidth, uint16_t buttonHeight, uint16_t x1, uint16_t x2, uint16_t y1, uint16_t y2, uint16_t color) {
+	if (x1 < 0 || x2 > buttonWidth || y1 < 0 || y2 > buttonHeight) {
+		printf("plasterPixel: trying to write off the end.\r\n");
+		return;
+	}
+
+	// the buffer is left to right top to bottom
+	for (uint16_t x = x1; x <= x2; x++) {
+		for (uint16_t y = y1; y <= y2; y++) {
+			buffer[y * buttonWidth + x] = big(color);
+		}
+	}
+}
+
+void plasterCharacter(uint16_t *buffer, uint16_t buttonWidth, uint16_t buttonHeight, uint16_t x, uint16_t y, char c, uint16_t color, uint8_t size_x, uint8_t size_y) {
+    for (int8_t i = 0; i < 5; i++) { // Char bitmap = 5 columns
+    	uint8_t line = font[c * 5 + i];
+    	for (int8_t j = 0; j < 8; j++, line >>= 1) {
+    		if (line & 1) {
+    			uint16_t x1 = x + i * size_x;
+    			uint16_t y1 = y + j * size_y;
+    			uint16_t x2 = x1 + size_x - 1;
+    			uint16_t y2 = y1 + size_y - 1;
+    			plasterPixel(buffer, buttonWidth, buttonHeight, x1, x2, y1, y2, color);
+    		}
+    	}
+    }
+}
+
+void plasterString(uint16_t *buffer, uint16_t buttonWidth, uint16_t buttonHeight, uint16_t x, uint16_t y, char *s, uint16_t color, uint8_t size_x, uint8_t size_y) {
+	uint16_t width = (5 + 1) * size_x; // because character has 5 columns, +1 to add space between characters
+	//x += width / 2; // indent it by half of one character
+	for (uint8_t i = 0; s[i] != 0; i++) {
+		uint16_t offset = x + i * width;
+		if (offset + width > 479) return; // off the end of the screen
+		plasterCharacter(buffer, buttonWidth, buttonHeight, offset, y, s[i], color, size_x, size_y);
+	}
+}
+
+void sendButton(SPI_HandleTypeDef* spi, uint16_t x1, uint16_t x2, uint16_t y1, uint16_t y2, uint16_t value, char* s) {
+
+	uint16_t width = (x2-x1+1);
+	uint16_t height = (y2-y1+1);
+	uint32_t amount = (uint32_t)width * (uint32_t)height; // amount of pixels to send
+	uint16_t widthSpan[2] = {big(x1), big(x2)};
+	uint16_t heightSpan[2] = {big(y1), big(y2)};
+	sendCommand(spi, HX8357_CASET, (uint8_t*)widthSpan, 4);
+	sendCommand(spi, HX8357_PASET, (uint8_t*)heightSpan, 4);
+
+	// This sends the pixels. There are likely more than 2^16 to send,
+	// however the HAL SPI can only send 2^16 at a time, so break up the
+	// transaction into chunks of 2^16. Don't send one at a time because that
+	// is much much slower. It is still fairly slow so in the future I
+	// could try to optimize it.
+	sendCommand(spi, HX8357_RAMWR, NULL, 0);
+	const uint32_t fullLength = 32767; // maximum amount of pixels that can be sent at once
+
+	if (amount > fullLength) {
+		printf("Can't buffer more than one small button!\r\n");
+		return;
+	}
+
+	uint16_t buffer[fullLength];
+	for (uint16_t i = 0; i < amount; i++) buffer[i] = big(value); // fill the buffer
+
+	uint16_t textPixelSize = 5;
+	plasterString(&buffer, width, height, textPixelSize * 2, textPixelSize * 5, s, 0xffff, textPixelSize, textPixelSize);
+
+	HAL_SPI_Transmit(spi, (uint8_t*)&buffer, amount * 2, 100);
+}
+
 // x1 <= x2, y1 <= y2
 void sendBlock(SPI_HandleTypeDef* spi, uint16_t x1, uint16_t x2, uint16_t y1, uint16_t y2, uint16_t value) {
+
 	uint32_t amount = (uint32_t)(x2-x1+1) * (uint32_t)(y2-y1+1); // amount of pixels to send
 	uint16_t widthSpan[2] = {big(x1), big(x2)};
 	uint16_t heightSpan[2] = {big(y1), big(y2)};
@@ -350,11 +422,14 @@ uint8_t states[5] = {0, 0, 0, 0, 0};
 
 void drawButton(SPI_HandleTypeDef* spi, uint8_t button, uint8_t on) {
 	switch (button) {
-	case 0: sendBlock(spi, 0, xend, yend-96, yend, colors[button][on]); return;
-	case 1: sendBlock(spi, 0, xend, yend-(96*2), yend-96-1, colors[button][on]); return;
-	case 2: sendBlock(spi, 0, xend, yend-(96*3), yend-(96*2)-1, colors[button][on]); return;
-	case 3: sendBlock(spi, 0, xend, yend-(96*4), yend-(96*3)-1, colors[button][on]); return;
-	case 4: sendBlock(spi, 0, xend, 0, yend-(96*4)-1, colors[button][on]); return;
+	case 0:
+		sendButton(spi, 0, xend, yend-96, yend, colors[button][on], "First");
+		//sendString(spi, 20, yend-48, "Delivering for?", 0xffff, 2, 2);
+		return;
+	case 1: sendButton(spi, 0, xend, yend-(96*2), yend-96-1, colors[button][on], "Second"); return;
+	case 2: sendButton(spi, 0, xend, yend-(96*3), yend-(96*2)-1, colors[button][on], "Third"); return;
+	case 3: sendButton(spi, 0, xend, yend-(96*4), yend-(96*3)-1, colors[button][on], "Fourth"); return;
+	case 4: sendButton(spi, 0, xend, 0, yend-(96*4)-1, colors[button][on], "Fifth"); return;
 	}
 }
 
@@ -369,6 +444,7 @@ void drawAll(SPI_HandleTypeDef* spi) {
 //	drawButton(spi, 2, 0);
 //	drawButton(spi, 3, 0);
 //	drawButton(spi, 4, 0);
+	sendBlock(spi, 0, xend, 0, yend, 0);
 	for (uint8_t i = 0; i < 5; i++) {
 		drawButton(spi, i, states[i]);
 	}
