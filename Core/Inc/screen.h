@@ -309,7 +309,7 @@ void sendButton(SPI_HandleTypeDef* spi, uint16_t x1, uint16_t x2, uint16_t y1, u
 	uint16_t buffer[fullLength];
 	for (uint16_t i = 0; i < amount; i++) buffer[i] = big(value); // fill the buffer
 
-	uint16_t textPixelSize = 5;
+	uint16_t textPixelSize = 3;
 	plasterString(&buffer, width, height, textPixelSize * 2, textPixelSize * 5, s, 0xffff, textPixelSize, textPixelSize);
 
 	HAL_SPI_Transmit(spi, (uint8_t*)&buffer, amount * 2, 100);
@@ -420,16 +420,16 @@ uint16_t colors[5][2] = {
 
 uint8_t states[5] = {0, 0, 0, 0, 0};
 
-void drawButton(SPI_HandleTypeDef* spi, uint8_t button, uint8_t on) {
+void drawButton(SPI_HandleTypeDef* spi, uint8_t button, uint8_t on, char* s) {
 	switch (button) {
 	case 0:
-		sendButton(spi, 0, xend, yend-96, yend, colors[button][on], "First");
+		sendButton(spi, 0, xend, yend-96, yend, colors[button][0], s);
 		//sendString(spi, 20, yend-48, "Delivering for?", 0xffff, 2, 2);
 		return;
-	case 1: sendButton(spi, 0, xend, yend-(96*2), yend-96-1, colors[button][on], "Second"); return;
-	case 2: sendButton(spi, 0, xend, yend-(96*3), yend-(96*2)-1, colors[button][on], "Third"); return;
-	case 3: sendButton(spi, 0, xend, yend-(96*4), yend-(96*3)-1, colors[button][on], "Fourth"); return;
-	case 4: sendButton(spi, 0, xend, 0, yend-(96*4)-1, colors[button][on], "Fifth"); return;
+	case 1: sendButton(spi, 0, xend, yend-(96*2), yend-96-1, colors[button][0], s); return;
+	case 2: sendButton(spi, 0, xend, yend-(96*3), yend-(96*2)-1, colors[button][0], s); return;
+	case 3: sendButton(spi, 0, xend, yend-(96*4), yend-(96*3)-1, colors[button][0], s); return;
+	case 4: sendButton(spi, 0, xend, 0, yend-(96*4)-1, colors[button][0], s); return;
 	}
 }
 
@@ -446,13 +446,13 @@ void drawAll(SPI_HandleTypeDef* spi) {
 //	drawButton(spi, 4, 0);
 	sendBlock(spi, 0, xend, 0, yend, 0);
 	for (uint8_t i = 0; i < 5; i++) {
-		drawButton(spi, i, states[i]);
+		drawButton(spi, i, states[i], "");
 	}
 }
 
 void flip(SPI_HandleTypeDef* spi, uint8_t button) {
 	states[button] = !states[button];
-	drawButton(spi, button, states[button]);
+	drawButton(spi, button, states[button], "Text");
 }
 
 void draw(SPI_HandleTypeDef* spi) {

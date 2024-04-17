@@ -34,7 +34,7 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_uart_ex.h \
  ../Core/Inc/foodorder.h ../Core/Inc/screen.h \
  ../Core/Inc/screen-defines.h ../Core/Inc/touch.h \
- ../Core/Inc/touch-defines.h
+ ../Core/Inc/touch-defines.h ../Core/Inc/kioskUART.h
 ../Core/Inc/main.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal.h:
 ../Core/Inc/stm32l4xx_hal_conf.h:
@@ -74,3 +74,4 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Core/Inc/screen-defines.h:
 ../Core/Inc/touch.h:
 ../Core/Inc/touch-defines.h:
+../Core/Inc/kioskUART.h:

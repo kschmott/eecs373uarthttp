@@ -27,6 +27,7 @@
 #include "foodorder.h"
 #include "screen.h"
 #include "touch.h"
+#include "kioskUART.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,7 +38,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define RX_BUFFER_SIZE 256
-#define MAX_FOOD_ORDERS 5
 #define SENSOR_ADDR 0x0C << 1 // Shift left for the HAL library
 #define READ_LEN 2 // Start by reading the 16-bit content length
 /* USER CODE END PD */
@@ -51,6 +51,7 @@
 I2C_HandleTypeDef hi2c2;
 
 UART_HandleTypeDef hlpuart1;
+UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 SPI_HandleTypeDef hspi1;
@@ -61,6 +62,7 @@ TIM_HandleTypeDef htim1;
 char rxBuffer[RX_BUFFER_SIZE];
 FoodOrder foodOrders[MAX_FOOD_ORDERS];
 FoodOrder prevFoodOrders[MAX_FOOD_ORDERS];
+int ignore_next_request = 0;
 volatile uint16_t rxIndex = 0;
 uint32_t i = 0;
 /* USER CODE END PV */
@@ -73,6 +75,7 @@ static void MX_LPUART1_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 void processReceivedData(char* data);
 /* USER CODE END PFP */
@@ -84,6 +87,13 @@ static void uartSend (char *str);
 int prevIdCode = -1;
 void openDoor(int id){
 	printf("Open The door signal sent with id %d\r\n", id);
+	int index = FoodOrder_FindIndex(id, foodOrders);
+	if (index == -1) {
+		printf("Invariant broken: couldn't find button corresponding to ID.\r\n");
+		return;
+	}
+	foodOrders[index].state = OpenedQR;
+	open_locker(&huart2, foodOrders[index].box);
 }
 
 void readTinyCodeData(void) {
@@ -166,7 +176,16 @@ void setBox(int id, int box){
 	 sprintf(command, "PUT%d%d\n", box, id);
 	 uartSend(command);
 }
+void deleteBox(int id){
+	 char command[17];
+	 sprintf(command, "DELETE%d\n", id);
+	 uartSend(command);
+}
 void processReceivedData(char* data) {
+	if(ignore_next_request){
+		ignore_next_request = 0;
+		return;
+	}
 	if(strcmp(data, "DATA") != 0){
 		return;
 	}
@@ -193,6 +212,14 @@ void processReceivedData(char* data) {
     	foodOrders[processedOrders].box = atoi(data);
     	data += 2;
     	foodOrders[processedOrders].valid = 1;
+    	if (prevFoodOrders[processedOrders].id == foodOrders[processedOrders].id && prevFoodOrders[processedOrders].valid){
+    		foodOrders[processedOrders].state = prevFoodOrders[processedOrders].state;
+    	}
+    	else if (foodOrders[processedOrders].box != 0) {
+    		foodOrders[processedOrders].state = Occupied;
+    	}else{
+    		foodOrders[processedOrders].state = Empty;
+    	}
     	++processedOrders;
     }
     for(int i = 0; i < processedOrders; ++i){
@@ -225,6 +252,11 @@ int main(void)
   /* USER CODE BEGIN 1 */
 	for (int i = 0; i < MAX_FOOD_ORDERS; ++i){
 		FoodOrder_Init(&foodOrders[i]);
+		foodOrders[i].state = Empty;
+	}
+	for (int i = 0; i < MAX_FOOD_ORDERS; ++i){
+		FoodOrder_Init(&prevFoodOrders[i]);
+		prevFoodOrders[i].state = Empty;
 	}
   /* USER CODE END 1 */
 
@@ -251,6 +283,7 @@ int main(void)
   MX_TIM1_Init();
   MX_I2C2_Init();
   MX_SPI1_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_Base_Start_IT(&htim1);
@@ -260,19 +293,85 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 
 
+  box_count = init_stream(&huart2);
+  box_count = MAX_FOOD_ORDERS < box_count ? MAX_FOOD_ORDERS : box_count;
+  for (int i = 0; i < box_count; i++) {
+	  close_locker(&huart2, i+1);
+  }
   initialize_touch(&hi2c2);
   initialize_screen(&hspi1);
   draw(&hspi1);
+  uartSend("LIST\n");
+  HAL_UART_Receive_IT(&huart3, (uint8_t*)&rxBuffer[rxIndex], 1);
 
   while (1)
   {
+
 	  if (pendingTouch) {
 		  pendingTouch = 0; // put this at the end to debounce or something
 
 		  uint8_t button = touchHook(&hi2c2);
+		  FoodOrder* order = &foodOrders[button];
 
-		  if (button != -1) flip(&hspi1, button);
+		  switch (order->state) {
+		  case Empty:
+			  // Select box and open it
+
+			  int newBox = FoodOrders_FindEmpty(foodOrders);
+			  if (newBox == -1) break;
+			  order->box = newBox;
+			  order->state = OpenedDelivery;
+
+			  setBox(order->id, order->box);
+
+			  open_locker(&huart2, order->box);
+
+			  break;
+		  case OpenedDelivery:
+			  // Close box
+			  order->state = Occupied;
+
+			  close_locker(&huart2, order->box);
+
+			  break;
+		  case Occupied:
+			  // Ignore because locked
+			  break;
+		  case OpenedQR:
+			  // Close box
+
+			  close_locker(&huart2, order->box);
+
+			  order->state = Empty;
+			  order->valid = 0;
+			  order->box = 0;
+			  ignore_next_request = 1;
+			  deleteBox(order->id);
+
+			  break;
+		  }
 	  }
+
+	  if (!FoodOrders_Equal(prevFoodOrders, foodOrders)) {
+		   FoodOrders_Copy(prevFoodOrders, foodOrders);
+
+		  for (int i = 0; i < MAX_FOOD_ORDERS; i++) {
+			  FoodOrder* order = &foodOrders[i];
+
+			  char message[25];
+			  if (!order->valid) {
+				  message[0] = '\0';
+			  } else if (order->state == Empty) {
+				  strcpy(message, foodOrders[i].name);
+			  } else {
+				  sprintf(message, "[%d] %s", order->box, order->name);
+			  }
+
+			  drawButton(&hspi1, i, 1, message);
+		  }
+	  }
+
+
 
 
 	  HAL_Delay(10);
@@ -427,6 +526,54 @@ static void MX_LPUART1_UART_Init(void)
   /* USER CODE BEGIN LPUART1_Init 2 */
 
   /* USER CODE END LPUART1_Init 2 */
+
+}
+
+/**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 9600;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
 
 }
 
@@ -745,14 +892,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF12_SDMMC1;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PD3 PD4 PD5 PD6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB3 PB4 PB5 */
